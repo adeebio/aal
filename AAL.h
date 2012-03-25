@@ -5,7 +5,8 @@
 #define AAL_h
 
 // Include the Arduino Library - to access the standard
-// types and constants of the Arduino language.
+// types and constants of the Arduino language. Also include
+// any other libraries needed by this one.
 
 #include <Arduino.h>
 #include <LiquidCrystal.h>
@@ -24,8 +25,10 @@ class AALClass {
 		// AAL Setup:
 		void	setup();
 		// Rig inputs and outputs:
-		bool	R1M(double voltage);	// true = value given and safe; false = value not given as unsafe.
-		bool	R2M(double voltage);	// true = value given and safe; false = value not given as unsafe.
+		bool	R1M(double voltage);	// true = value given and safe;
+										// false = value not given as unsafe.
+		bool	R2M(double voltage);	// true = value given and safe;
+										// false = value not given as unsafe.
 		double	R1T();
 		double	R2T();
 		// Buttons:
@@ -41,13 +44,21 @@ class AALClass {
 		// LCD:
 		void	LCDPrint(char str[]);		// !!!!!
 		// Data submissions:
-		void	submit(double time, double input, double output);
+		void	submit(double time, double reference, double input, double output);
 		void	submitSerialSet(int arg);
 		void	submitServerSet(int arg);
-		void	submitSerial(double time, double input, double output);
-		void	submitServer(double time, double input, double output);
-		// Experiment methods.
-			
+		void	submitSerial(double time, double reference, double input, double output);
+		void	submitServer(double time, double reference, double input, double output);        // !!!!!
+		// Reference Signals:
+		double	ref_step(double time, double start, double end, double amplitude);
+		double	ref_sine(double time, double start, double end, double amplitude, double frequency);
+		double	ref_scale(double time, double start, double end, double bias,
+							double amplitude, double frequencyStart, double frequencyEnd);
+		// Experiment methods:
+		bool	exp_step(double start, double end, double amplitude);
+		bool	exp_scale(double start, double end, double bias, double amplitude,
+							double frequencyStart, double frequencyEnd);
+		bool	exp_p_step(double start, double end, double amplitude, double Kp, double delta);
 		
 		// Public properties.
 	
@@ -57,10 +68,10 @@ class AALClass {
 		
 		// Private properties.
 		// Calibaration:
-		int		_analogInputUpperBound;
-		int		_PWMOutputUpperBound;
+		double	_analogInputUpperBound;
+		double	_PWMOutputUpperBound;
 		// Voltage safety limits:
-		float	_motorVoltageCutOff;
+		double	_motorVoltageCutOff;
 		// Rig connections:
 		int		_rotor1MotorPWMPin;
 		int		_rotor2MotorPWMPin;
@@ -73,15 +84,14 @@ class AALClass {
 		int		_btnNextPin;
 		int		_btnGoPin;
 		// Data submissions:
-		int		_submitSerial;	// 0 = OFF; 1 = ON; Default - 0.
-		int		_submitServer;	// 0 = OFF; 1 = ON; Default - 0.
+		int		_submitSerial;	// 0 = OFF; 1 = ON; Default - 1.
+		int		_submitServer;	// 0 = OFF; 1 = ON; Default - 1.
 		// Others:
 		int		_baud;			// Default - 9600.
 		int		_serial;		// 0 = OFF; 1 = ON; Default - 0.
 };
 
-// Code to remove the need to initialize an AAL
-// object in sketch.
+// When calling the ACTLab and AAL objects, look outside this file.
 
 extern ACTLabClass ACTLab;
 extern AALClass AAL;
