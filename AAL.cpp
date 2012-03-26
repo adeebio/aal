@@ -14,7 +14,7 @@
 #include <AAL.h>
 
 // Declare the LCD object with the correct pin configurations.
-LiquidCrystal LCD(2, 3, 4, 5, 6, 7);
+LiquidCrystal LCD(2, 3, 13, 5, 6, 7);
 
 // ======================================================================
 // =================================================== Constructor Method
@@ -29,7 +29,7 @@ AALClass::AALClass () {
 		_motorVoltageCutOff			= 8.5; // /V
 		
 		// Rig Connections:
-		_rotor1MotorPWMPin			= 10;
+		_rotor1MotorPWMPin			= 12;
 		_rotor2MotorPWMPin			= 11;
 		_rotor1TachoAnalogPin		= 0;
 		_rotor2TachoAnalogPin		= 1;
@@ -74,7 +74,11 @@ void AALClass::setup () {
 	R1M(0); R2M(0);
 	
 	// If data is being sent to the server the ethernet shield needs to be started.
-	if (_submitServer==1) {ACTLab.startEthernet();};
+	if (_submitServer==1) {
+		serialPrintln("Starting ethernet (setup).");
+		ACTLab.startEthernet();
+		serialPrintln("Ethernet started (setup).");
+	};
 }
 
 // ======================================================================
@@ -82,13 +86,13 @@ void AALClass::setup () {
 
 bool AALClass::R1M (double voltage) {
 	// Variables
-	float _voltage;
+	double _voltage;
 	bool _within;
-	float _value;
+	double _value;
 	
 	// Check if requested voltage is within range.
-	if (voltage < (0 - _motorVoltageCutOff)) {
-		_voltage = (0 - _motorVoltageCutOff);
+	if (voltage < ( - _motorVoltageCutOff)) {
+		_voltage = ( - _motorVoltageCutOff);
 		_within = false;
 	} else if (voltage > _motorVoltageCutOff) {
 		_voltage = _motorVoltageCutOff;
@@ -100,7 +104,7 @@ bool AALClass::R1M (double voltage) {
 	
 	// Calculate voltage PWM value:
 	// Voltage, plus 10, divide by 20, times by _PWMOutputUpperBound.
-	_value = (((_voltage+10)/20)*_PWMOutputUpperBound);
+	_value = (((_voltage+((double)10))/((double)20))*_PWMOutputUpperBound);
 	
 	// Send PWM value to rig.
 	analogWrite(_rotor1MotorPWMPin,_value);
@@ -112,13 +116,13 @@ bool AALClass::R1M (double voltage) {
 
 bool AALClass::R2M (double voltage) {
 	// Variables
-	float _voltage;
+	double _voltage;
 	bool _within;
-	float _value;
+	double _value;
 	
 	// Check if requested voltage is within range.
-	if (voltage < (0 - _motorVoltageCutOff)) {
-		_voltage = (0 - _motorVoltageCutOff);
+	if (voltage < ( - _motorVoltageCutOff)) {
+		_voltage = ( - _motorVoltageCutOff);
 		_within = false;
 	} else if (voltage > _motorVoltageCutOff) {
 		_voltage = _motorVoltageCutOff;
@@ -130,7 +134,7 @@ bool AALClass::R2M (double voltage) {
 	
 	// Calculate voltage PWM value:
 	// Voltage, plus 10, divide by 20, times by _PWMOutputUpperBound.
-	_value = (((_voltage+10)/20)*_PWMOutputUpperBound);
+	_value = (((_voltage+((double)10))/((double)20))*_PWMOutputUpperBound);
 	
 	// Send PWM value to rig.
 	analogWrite(_rotor2MotorPWMPin,_value);
@@ -142,7 +146,7 @@ bool AALClass::R2M (double voltage) {
 
 double AALClass::R1T () {
 	// Analog Read, divide by _analogInputUpperBound, times 20, minus 10.
-	double value = (((analogRead(_rotor1TachoAnalogPin)/_analogInputUpperBound)*20)-10);
+	double value = (((analogRead(_rotor1TachoAnalogPin)/_analogInputUpperBound)*((double)20))-((double)10));
 	return (value);
 }
 
@@ -150,7 +154,7 @@ double AALClass::R1T () {
 
 double AALClass::R2T () {
 	// Analog Read, divide by _analogInputUpperBound, times 20, minus 10.
-	double value = (((analogRead(_rotor2TachoAnalogPin)/_analogInputUpperBound)*20)-10);
+	double value = (((analogRead(_rotor2TachoAnalogPin)/_analogInputUpperBound)*((double)20))-((double)10));
 	return (value);
 }
 
@@ -239,16 +243,16 @@ void AALClass::submitServer (double time, double reference, double input, double
 
 double AALClass::ref_step (double time, double start, double end, double amplitude) {
 	if ((time>start)&&(time<end)) {return amplitude;}
-	else {return 0;};
+	else {return (double)0;};
 }
 
 // AAL.ref_sine()
 
 double AALClass::ref_sine (double time, double start, double end, double amplitude, double frequency) {
 	if ((time>start)&&(time<end)) {
-		float timePassed = time - start;
+		double timePassed = time - start;
 		return (amplitude*(sin(timePassed*frequency)));
-	} else {return 0;};
+	} else {return (double)0;};
 }
 
 // AAL.ref_scale()
@@ -258,7 +262,7 @@ double AALClass::ref_scale (double time, double start, double end, double bias, 
 }
 
 // ======================================================================
-// ==================================================== Experiment Methods
+// =================================================== Experiment Methods
 
 // AAL.exp_step()
 
@@ -267,9 +271,9 @@ bool AALClass::exp_step (double start, double end, double amplitude) {
 	R1M(0);R2M(0);delay(5000);
 	
 	for (float time = 0; time <= end; time = time + 0.1) {
-		double temp =  ref_step(time,start,end,amplitude);
-		R1M(temp);
-		submit(time, temp, temp, R1T());
+		float input =  ref_step(time,start,end,amplitude);
+		R1M(input);
+		submit(time, input, input, R1T());
 		delay(100);
 	};
 	
@@ -337,6 +341,9 @@ bool AALClass::exp_p_step (double start, double end, double amplitude, double Kp
 	// Control loop.
 	for (float time = 0; time <= end; time = time + _delta) {
 		
+		Serial.print("_delta: ");
+		Serial.print(_delta,5);
+		
 		// Get time reference at the start of loop.
 		_tLoopStart = millis()/((float)1000);
 		
@@ -347,10 +354,17 @@ bool AALClass::exp_p_step (double start, double end, double amplitude, double Kp
 		//R1M((_Kp*e_k_));
 		
 		// Submit data.
-		//submit (time, (_Kp*e_k_), R1T());
+		//submit (time, (_Kp*e_k_), (_Kp*e_k_), R1T());
+		submit(5, 5, 5, 5);
+		
+		Serial.print("_tLoopStart: ");
+		Serial.print(_tLoopStart,5);
 		
 		// Get time since start of loop.
 		_tLoop = (millis()/((float)1000)) - _tLoopStart;
+		
+		Serial.print("     _tLoop: ");
+		Serial.print(_tLoop,5);
 		
 		// Check loop length and act accordingly.
 		if (_tLoop < delta) {
@@ -363,6 +377,8 @@ bool AALClass::exp_p_step (double start, double end, double amplitude, double Kp
 		} else {
 			_delta = _tLoop;
 		};
+		
+		Serial.println("");
 	};
 	
 	// Settle the rig.
