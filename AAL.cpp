@@ -1,13 +1,3 @@
-// Include the Arduino Library - to access the standard
-// types and constants of the Arduino language. Also include
-// any other libraries needed by this one.
-
-#include <Arduino.h>
-#include <LiquidCrystal.h>
-#include <SPI.h>
-#include <Ethernet.h>	
-#include <ACTLab.h>
-
 // Include the AAL header file where the class methods
 // and properties are declared.
 
@@ -21,6 +11,13 @@ LiquidCrystal LCD(2, 3, 13, 5, 6, 7);
 
 AALClass::AALClass () {
 	// Set private properties.
+		// Core method properties:
+		_LCD_initialModeSet			= false;
+		_LCD_modeInternet			= btnInternet();
+		_currentExpNum				= 1;
+		_btnPreviousPressed			= false;
+		_btnNextPressed				= false;
+		_btnGoPressed				= false;
 		// Calibration:
 		_analogInputUpperBound		= 1023;
 		_PWMOutputUpperBound		= 255;
@@ -43,7 +40,7 @@ AALClass::AALClass () {
 		
 		// Data submissions:
 		_submitSerial				= 1;
-		_submitServer				= 1;
+		_submitServer				= 0;
 		
 		// Others:
 		_baud						= 9600;
@@ -64,25 +61,220 @@ AALClass::AALClass () {
 }
 
 // ======================================================================
-// ============================================================ AAL Setup
+// ===================================== AAL Start and Other Core Methods
+
+// AAL.setup()
 
 void AALClass::setup () {
-	// If either _serial or _submitSerial = 1 then the Serial needs to be turned on.
-	if ((_serial==1)||(_submitSerial==1)) {Serial.begin(_baud);};
+	// Begin the serial connection with a 9600 baud.
+	Serial.begin(9600);
 	
-	// Settle the rig.
+	// Configure ACTLab Library.
+	ACTLab.rig("tr");
+	ACTLab.MAC(0x90,0xA2,0xDA,0x00,0x7F,0xAB);
+	ACTLab.SDBuffer(0);              // 1 = Intending to use SD Buffer. [Default: 0]
+	ACTLab.serialMessages(1);        // 1 = Print ACTLab progress messages to serial. [Default: 0]
+	
+	// Start ACTLab Library.
+	ACTLab.start();
+	
+	// Change any AAL settings if needed.
+	AAL.submitSerialSet(1);          // 1 = Send data to serial. [Default: 1]
+	AAL.submitServerSet(0);          // 1 = Send data to server. [Default: 0]
+	AAL.serialMessages(1);           // 1 = Print AAL progress messages to serial. [Default: 0]
+}
+
+// AAL.start()
+
+void AALClass::start (int setupRequested) {
+	// Settle the rig first.
 	R1M(0); R2M(0);
 	
-	// If data is being sent to the server the ethernet shield needs to be started.
-	if (_submitServer==1) {
-		serialPrintln("Starting ethernet (setup).");
-		ACTLab.startEthernet();
-		serialPrintln("Ethernet started (setup).");
+	// Set up the LCD's number of columns and rows.
+	LCD.begin(16, 2);
+	
+	// Initialising message.
+	LCDPrint("Initialising...","");
+	
+	// Check to see if setup is needed.
+	if (setupRequested==1) {setup();};
+	
+	// Welcome message.
+	LCDPrint("     Hello!","I'm Rotorduino!!");
+	delay(3000);
+	
+	// Enter the rigLoop.
+	rigLoop();
+}
+
+// AAL.rigLoop()
+
+void AALClass::rigLoop () {
+	while (true) {
+		if (btnInternet()) {
+			// Internet Mode.
+			modeInternet();
+		} else {
+			// Rig Mode.
+			modeRig();
+		};
+	};
+}
+
+// AAL.modeInternet()
+
+void AALClass::modeInternet () {
+	// Check if LCD needs to be changed.
+	if ((!_LCD_modeInternet)||(!_LCD_initialModeSet)) {
+		_LCD_modeInternet=true;
+		_LCD_initialModeSet=true;
+		LCDPrint("Mode: Internet","");
+	};
+}
+
+// AAL.modeRig()
+
+void AALClass::modeRig () {
+	// Set _numOfExperiments.
+	_numOfExperiments = modeRigExperiments(1);
+	
+	// Check if LCD needs to be changed (if so, also reset rig experiment number).
+	if (_LCD_modeInternet||(!_LCD_initialModeSet)) {
+		_LCD_modeInternet=false;
+		_LCD_initialModeSet=true;
+		_currentExpNum = 1;
+		modeRigSetLCD();
+	};
+	
+	// If previous button is pushed.
+	if (btnPrevious()) {
+		// Check to see if it isn't the same press.
+		if (!_btnPreviousPressed) {
+			_btnPreviousPressed = true;
+			
+			// Set _currentExpNum and update LCD message.
+			if (_currentExpNum == 1) {_currentExpNum = _numOfExperiments;}
+			else {_currentExpNum --;};
+			modeRigSetLCD();
+		};
+	};
+	
+	// If next button is pushed.
+	if (btnNext()) {
+		// Check to see if it isn't the same press.
+		if (!_btnNextPressed) {
+			_btnNextPressed = true;
+			
+			// Set _currentExpNum.
+			if (_currentExpNum == _numOfExperiments) {_currentExpNum = 1;}
+			else {_currentExpNum ++;};
+			modeRigSetLCD();
+		};
+	};
+	
+	// If go button is pushed.
+	if (btnGo()) {
+		// Check to see if it isn't the same press.
+		if (!_btnGoPressed) {
+			_btnGoPressed = true;
+			
+			// Run selected experiment
+			modeRigExperiments();
+		};
+	};
+	
+	// Reset button pressed states.
+	if (!btnPrevious())	{_btnPreviousPressed	= false;};
+	if (!btnNext())		{_btnNextPressed		= false;};
+	if (!btnGo())		{_btnGoPressed			= false;};
+}
+
+// AAL.modeRigSetLCD()
+
+void AALClass::modeRigSetLCD () {
+	// Buffers
+	char LCDMessageBuffer[16] = {};
+	char expNumBuffer[3] = {};
+	
+	// LCD print.
+	itoa(_currentExpNum, expNumBuffer, 10);
+	strcat(LCDMessageBuffer,"Experiment: ");
+	strcat(LCDMessageBuffer,expNumBuffer);
+	LCDPrint("Mode: Rig",LCDMessageBuffer);
+}
+
+// AAL.modeRigExperiments()
+
+int AALClass::modeRigExperiments (int numRequested) {
+	// Number of experiments.
+	int numberOfExperiments = 9;
+	
+	// If an experiment has been requested.
+	if (numRequested == 0) {
+		switch (_currentExpNum) {
+			case 1: // Experiment 1
+				serialPrintln("Experiment 1 GO!");
+				exp_step (5, 30, 3);
+				break;
+				
+			case 2: // Experiment 2
+				serialPrintln("Experiment 2 GO!");
+				exp_step_c(5, 30, 3.0, "pi", 0.5, 0.1, 0.1, 0.05);
+				break;
+				
+			case 3: // Experiment 3
+				serialPrintln("Experiment 3 GO!");
+				exp_step_c(5, 30, 3.0, "pi", 0.5, 0.2, 0.1, 0.05);
+				break;
+				
+			case 4: // Experiment 4
+				serialPrintln("Experiment 4 GO!");
+				exp_step_c(5, 30, 3.0, "pi", 0.5, 0.3, 0.1, 0.05);
+				break;
+				
+			case 5: // Experiment 5
+				serialPrintln("Experiment 5 GO!");
+				exp_step_c(5, 30, 3.0, "pi", 0.5, 0.4, 0.1, 0.05);
+				break;
+				
+			case 6: // Experiment 6
+				serialPrintln("Experiment 6 GO!");
+				exp_step_c(5, 30, 3.0, "pi", 0.5, 0.5, 0.1, 0.05);
+				break;
+				
+			case 7: // Experiment 7
+				serialPrintln("Experiment 7 GO!");
+				exp_step_c(5, 30, 3.0, "pi", 0.5, 0.6, 0.1, 0.05);
+				break;
+				
+			case 8: // Experiment 8
+				serialPrintln("Experiment 8 GO!");
+				exp_step_c(5, 30, 3.0, "pi", 0.5, 0.7, 0.1, 0.05);
+				break;
+				
+			case 9: // Experiment 9
+				serialPrintln("Experiment 9 GO!");
+				exp_step_c(5, 30, 3.0, "pi", 0.5, 0.8, 0.1, 0.05);
+				break;
+				
+			default:
+				break;
+		};
+		
+		// Return something.
+		return numberOfExperiments;
+	};
+	
+	// If number of experiments requested.
+	if (numRequested != 0) {
+		return numberOfExperiments;
 	};
 }
 
 // ======================================================================
 // =============================================== Rig Inputs and Outputs
+
+// AAL.R1M()
 
 bool AALClass::R1M (double voltage) {
 	// Variables
@@ -179,9 +371,9 @@ bool AALClass::btnGo () {
 // ======================================================================
 // ====================================================== Serial Messages
 
-// AAL.serial()
+// AAL.serialMessages()
 
-void AALClass::serial (int arg) { if ( arg==0||arg==1) {_serial = arg;}; }
+void AALClass::serialMessages (int arg) { if ( arg==0||arg==1) {_serial = arg;}; }
 
 // AAL.serialPrint()
 
@@ -196,8 +388,14 @@ void AALClass::serialPrintln (char str[]) { if (_serial) {Serial.println(str);};
 
 // AAL.LCDPrint()
 
-void AALClass::LCDPrint (char str[]) {
-	LCD.print(str);
+void AALClass::LCDPrint (char row1[], char row2[]) {
+	// Clear the LCD.
+	LCD.clear();
+	// Print row 1.
+	LCD.print(row1);
+	// Print row 2.
+	LCD.setCursor(0, 1);
+	LCD.print(row2);
 }
 
 // ======================================================================
@@ -233,7 +431,7 @@ void AALClass::submitSerial (double time, double reference, double input, double
 // AAL.submitServer()
 
 void AALClass::submitServer (double time, double reference, double input, double output) {
-	ACTLab.submitData(time,input,output);
+	ACTLab.submitData(time,reference,input,output);
 }
 
 // ======================================================================
@@ -259,6 +457,104 @@ double AALClass::ref_sine (double time, double start, double end, double amplitu
 
 double AALClass::ref_scale (double time, double start, double end, double bias, double amplitude,
 								double frequencyStart, double frequencyEnd) {
+}
+
+// ======================================================================
+// ============================================ Control Assistive Methods
+
+// AAL.cProperties_reset()
+
+void AALClass::cProperties_reset () {
+	_cm	= "";
+	_Kp	= 0;
+	_Ki	= 0;
+	_Kd	= 0;
+	_u	= 0;
+	_u1	= 0;
+	_y	= 0;
+	_y1	= 0;
+	_e	= 0;
+	_e1	= 0;
+	_d	= 0;
+	_d1 = 0;
+	_tLoopStart	= 0;
+	_tLoop		= 0;
+}
+
+// AAL.cProperties_set()
+
+void AALClass::cProperties_set (String cm, float Kp, float Ki, float Kd, float d) {
+	_cm = cm;
+	_Kp = Kp;
+	_Ki = Ki;
+	_Kd = Kd;
+	_d	= d;
+	_d1	= d;
+}
+
+// AAL.cProperties_pushYE()
+
+void AALClass::cProperties_pushYE (float y, float e) {
+	_y1	= _y;
+	_e1	= _e;
+	_y	= y;
+	_e	= e;
+}
+
+// AAL.cProperties_pushU()
+
+void AALClass::cProperties_pushU (float u) {
+	_u1	= _u;
+	_u	= u;
+}
+
+// AAL.cLoop_start()
+
+void AALClass::cLoop_start () {
+	// Get time reference at the start of loop.
+	_tLoopStart = millis()/((float)1000);
+}
+
+// AAL.cLoop_end()
+
+void AALClass::cLoop_end () {
+	// Get time since start of loop.
+	_tLoop = (millis()/((float)1000)) - _tLoopStart;
+	
+	// Check loop length and act accordingly.
+	if (_tLoop < _d) {
+		delay((_d - _tLoop)*1000);
+		_d1 = _d;
+	} else {
+		_d1 = _tLoop;
+	};
+}
+
+// ======================================================================
+// ====================================================== Control Methods
+
+// AAL.c_p()
+
+double	AALClass::c_p () {
+	return (_Kp*_e);
+}
+
+// AAL.c_pd()
+
+double	AALClass::c_pd () {
+	return ((_Kp*_e)+((_Kd/_d1)*(_e - _e1)));
+}
+
+// AAL.c_pi()
+
+double	AALClass::c_pi () {
+	return (_u1+(_Kp*_e)-((_Kp-(_Ki*_d1))*_e1));
+}
+
+// AAL.c_pdfb()
+
+double	AALClass::c_pdfb () {
+	return ((_Kp*_e)-((_Kp*_Kd)*((_y-_y1)/_d1)));
 }
 
 // ======================================================================
@@ -330,8 +626,8 @@ bool AALClass::exp_scale (double start, double end, double bias, double amplitud
 
 bool AALClass::exp_p_step (double start, double end, double amplitude, double Kp, double delta) {
 	// Variables.
-	float _Kp = Kp;			// 8.0289
-	float _delta = delta;	// 0.02 s
+	float _Kp = Kp;			// 0.40
+	float _delta = delta;	// 0.05 s
 	float _tLoopStart;
 	float _tLoop;
 	
@@ -340,9 +636,6 @@ bool AALClass::exp_p_step (double start, double end, double amplitude, double Kp
 	
 	// Control loop.
 	for (float time = 0; time <= end; time = time + _delta) {
-		
-		Serial.print("_delta: ");
-		Serial.print(_delta,5);
 		
 		// Get time reference at the start of loop.
 		_tLoopStart = millis()/((float)1000);
@@ -355,30 +648,72 @@ bool AALClass::exp_p_step (double start, double end, double amplitude, double Kp
 		
 		// Submit data.
 		//submit (time, (_Kp*e_k_), (_Kp*e_k_), R1T());
-		submit(5, 5, 5, 5);
-		
-		Serial.print("_tLoopStart: ");
-		Serial.print(_tLoopStart,5);
 		
 		// Get time since start of loop.
 		_tLoop = (millis()/((float)1000)) - _tLoopStart;
 		
-		Serial.print("     _tLoop: ");
-		Serial.print(_tLoop,5);
-		
 		// Check loop length and act accordingly.
 		if (_tLoop < delta) {
 			delay((delta - _tLoop)*1000);
-			
-			Serial.print("     delay: ");
-			Serial.print((delta - _tLoop)*1000,5);
-			
 			_delta = delta;
 		} else {
 			_delta = _tLoop;
 		};
+	};
+	
+	// Settle the rig.
+	R1M(0);R2M(0);delay(5000);
+	
+	return true;
+}
+
+// AAL.exp_step_c()
+
+bool AALClass::exp_step_c (double start, double end, double amplitude, String cm, double Kp, double Ki, double Kd, double delta) {
+	// Settle the rig.
+	R1M(0);R2M(0);delay(5000);
+	
+	// Reset control properties.
+	cProperties_reset();
+	
+	// Set control properties.
+	cProperties_set(cm, Kp, Ki, Kd, delta);
+	
+	// Control loop.
+	for (float time = 0; time <= end; time = time + _d1) {
+		// Start loop actions.
+		cLoop_start();
 		
-		Serial.println("");
+		// Variables.
+		float	r;
+		float	u;
+		float	y;
+		float	e;
+		
+		// Get reference.
+		r = ref_step(time,start,end,amplitude);
+		// Get output.
+		y = R1T();
+		// Calculate error.
+		e = r - y;
+		// Push y and e.
+		cProperties_pushYE(y, e);
+		// Calculate input.
+		if		(cm == "p")		{u = c_p();}
+		else if	(cm == "pd")	{u = c_pd();}
+		else if	(cm == "pi")	{u = c_pi();}
+		else if	(cm == "pdfb")	{u = c_pdfb();}
+		else	{return false;};
+		// Push u.
+		cProperties_pushU(u);
+		// Send u to rig.
+		R1M(u);
+		
+		// Submit data.
+		submit (time, r, u, y);
+		
+		// End loop actions.
+		cLoop_end();
 	};
 	
 	// Settle the rig.
